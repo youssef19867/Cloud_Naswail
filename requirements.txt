@@ -1,0 +1,12 @@
+flask
+pandas
+numpy
+scikit-learn
+torch
+torchvision
+joblib
+scapy
+nfstream
+gunicorn
+requests
+psutil

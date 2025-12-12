@@ -1,0 +1,94 @@
+from flask import Flask, request, jsonify
+import base64
+import tempfile
+import os
+import sys
+import io
+from contextlib import redirect_stdout
+
+sys.path.append('/opt/ids-detector/scripts')
+
+app = Flask(__name__)
+
+class IDSAPI:
+    def __init__(self):
+        self.ml_detector = None
+        self.dl_detector = None
+        self.load_detectors()
+    
+    def load_detectors(self):
+        try:
+            from ml_ids_deployment_fixed import ML_IDS
+            self.ml_detector = ML_IDS("models/", "models/")
+            print("✅ ML Detector loaded")
+        except Exception as e:
+            print(f"❌ ML Detector failed: {e}")
+        
+        try:
+            from dl_ids_deployment import AEAnomalyDetector
+            self.dl_detector = AEAnomalyDetector(
+                "models/dl_models/mlp_best_numeric_autoencoder.pth",
+                "models/dl_models/all_error.pkl",
+                "models/dl_models/scaler.pkl"
+            )
+            print("✅ DL Detector loaded")
+        except Exception as e:
+            print(f"❌ DL Detector failed: {e}")
+
+ids_api = IDSAPI()
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({
+        "status": "healthy",
+        "ml_loaded": ids_api.ml_detector is not None,
+        "dl_loaded": ids_api.dl_detector is not None
+    })
+
+@app.route('/detect/ml', methods=['POST'])
+def detect_ml():
+    try:
+        data = request.get_json()
+        if not data or 'packets' not in data:
+            return jsonify({"error": "Missing 'packets' field"}), 400
+        
+        if not ids_api.ml_detector:
+            return jsonify({"error": "ML detector not available"}), 500
+        
+        # Get structured results
+        results = ids_api.ml_detector.bootstrap(data)
+        
+        return jsonify({
+            "status": "success", 
+            "results": results,
+            "detector": "ml"
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/detect/dl', methods=['POST'])
+def detect_dl():
+    try:
+        data = request.get_json()
+        if not data or 'packets' not in data:
+            return jsonify({"error": "Missing 'packets' field"}), 400
+        
+        if not ids_api.dl_detector:
+            return jsonify({"error": "DL detector not available"}), 500
+        
+        # Get structured results
+        results = ids_api.dl_detector.bootstrap(data)
+        
+        return jsonify({
+            "status": "success",
+            "results": results,
+            "detector": "dl"
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == '__main__':
+    print("🚀 Starting IDS Detector API Server with Structured Results...")
+    app.run(host='0.0.0.0', port=8080, debug=False)
